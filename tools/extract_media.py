@@ -56,6 +56,25 @@ def detect_file(head, original_ext):
     return None
 
 
+def validate_directories(input_dir, output_dir):
+    """Validate paths before walking or writing any backup data."""
+    input_path = os.path.abspath(os.path.realpath(input_dir))
+    output_path = os.path.abspath(os.path.realpath(output_dir))
+    if not os.path.isdir(input_path):
+        raise ValueError(
+            "input directory does not exist or is not a directory"
+        )
+    if not os.access(input_path, os.R_OK | os.X_OK):
+        raise ValueError("input directory is not readable")
+    try:
+        inside = os.path.commonpath((input_path, output_path)) == input_path
+    except ValueError:
+        inside = False
+    if inside:
+        raise ValueError("output directory must be outside input directory")
+    return input_path, output_path
+
+
 def extract_one(source, destination, source_root=None, head_size=HEAD_SIZE):
     with open(source, "rb") as stream:
         head = stream.read(head_size)
@@ -73,9 +92,13 @@ def extract_one(source, destination, source_root=None, head_size=HEAD_SIZE):
         )
     if source_root:
         relative = os.path.relpath(source, source_root)
-        output = os.path.join(
-            destination, os.path.splitext(relative)[0] + "." + extension
+        stem, source_ext = os.path.splitext(relative)
+        # Keep a mismatching source suffix so e.g. same.dat and same.jpg
+        # cannot collide after both are recognized as JPEG.
+        suffix = (
+            source_ext if source_ext.lower().lstrip(".") != extension else ""
         )
+        output = os.path.join(destination, stem + suffix + "." + extension)
     else:
         output = os.path.join(
             destination,
@@ -115,29 +138,35 @@ def main():
     )
     parser.add_argument("--report", help="Optional JSON report path")
     args = parser.parse_args()
+    try:
+        input_dir, output_dir = validate_directories(
+            args.input_dir, args.output_dir
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     stats = Counter()
     failures = []
-    for root, _, files in os.walk(args.input_dir):
+    for root, _, files in os.walk(input_dir):
         for name in files:
             source = os.path.join(root, name)
             try:
                 status, _ = extract_one(
-                    source, args.output_dir, args.input_dir
+                    source, output_dir, input_dir
                 )
                 stats[status] += 1
                 if status == "unrecognized":
-                    failures.append(os.path.relpath(source, args.input_dir))
+                    failures.append(os.path.relpath(source, input_dir))
             except (OSError, ValueError) as exc:
                 stats["error"] += 1
                 failures.append(
                     {
-                        "file": os.path.relpath(source, args.input_dir),
+                        "file": os.path.relpath(source, input_dir),
                         "error": str(exc),
                     }
                 )
     report = {
-        "input_dir": os.path.abspath(args.input_dir),
-        "output_dir": os.path.abspath(args.output_dir),
+        "input_dir": input_dir,
+        "output_dir": output_dir,
         "counts": dict(stats),
         "failures": failures,
     }

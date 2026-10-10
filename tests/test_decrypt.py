@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from tools.decrypt import decrypt_xor, imei_key_derivation, validate_key
-from tools.extract_media import detect_file, extract_one
+from tools.extract_media import detect_file, extract_one, validate_directories
 
 
 def test_imei_derivation_returns_four_bytes():
@@ -58,6 +58,41 @@ def test_interrupted_output_is_not_considered_complete(tmp_path):
     status, path = extract_one(str(source), str(output))
     assert status == "extracted"
     assert Path(path).read_bytes() == b"payload"
+
+
+def test_output_must_be_outside_input(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    for output_dir in (input_dir, input_dir / "out"):
+        try:
+            validate_directories(str(input_dir), str(output_dir))
+        except ValueError as exc:
+            assert "outside input" in str(exc)
+        else:
+            raise AssertionError("input-contained output was accepted")
+
+
+def test_normalized_extensions_do_not_collide(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    first = input_dir / "same.dat"
+    second = input_dir / "same.jpg"
+    first.write_bytes(b"\xff\xd8\xffone")
+    second.write_bytes(b"\xff\xd8\xfftwo")
+    output = tmp_path / "output"
+    extract_one(str(first), str(output), str(input_dir))
+    extract_one(str(second), str(output), str(input_dir))
+    assert (output / "same.dat.jpg").read_bytes() == b"\xff\xd8\xffone"
+    assert (output / "same.jpg").read_bytes() == b"\xff\xd8\xfftwo"
+
+
+def test_missing_input_is_rejected(tmp_path):
+    try:
+        validate_directories(str(tmp_path / "missing"), str(tmp_path / "out"))
+    except ValueError as exc:
+        assert "does not exist" in str(exc)
+    else:
+        raise AssertionError("missing input was accepted")
 
 
 def test_validate_key_on_minimal_database(tmp_path):
