@@ -16,6 +16,7 @@ HEIC_BRANDS = {b"heic", b"heix", b"hevc", b"heif", b"mif1", b"msf1"}
 DOC_EXTS = {
     "docx", "pptx", "xlsx", "doc", "xls", "zip", "epub", "mobi", "xapk", "apkm"
 }
+OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
 def ftyp_extension(head, offset):
@@ -43,6 +44,8 @@ def detect_file(head, original_ext):
         return 0, "pdf"
     if head.startswith(b"PK"):
         return 0, original_ext if original_ext in DOC_EXTS else "zip"
+    if head.startswith(OLE_MAGIC) and original_ext in {"doc", "xls"}:
+        return 0, original_ext
     mp3_headers = (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa")
     if head.startswith(b"ID3") or any(head.startswith(x) for x in mp3_headers):
         return 0, "mp3"
@@ -95,9 +98,13 @@ def extract_one(source, destination, source_root=None, head_size=HEAD_SIZE):
         stem, source_ext = os.path.splitext(relative)
         # Keep a mismatching source suffix so e.g. same.dat and same.jpg
         # cannot collide after both are recognized as JPEG.
-        suffix = (
-            source_ext if source_ext.lower().lstrip(".") != extension else ""
-        )
+        normalized_source_ext = source_ext.lower().lstrip(".")
+        if normalized_source_ext == extension:
+            suffix = ""
+        elif normalized_source_ext:
+            suffix = source_ext
+        else:
+            suffix = ".noext"
         output = os.path.join(destination, stem + suffix + "." + extension)
     else:
         output = os.path.join(
@@ -146,7 +153,13 @@ def main():
         parser.error(str(exc))
     stats = Counter()
     failures = []
-    for root, _, files in os.walk(input_dir):
+    def record_walk_error(error):
+        failures.append({
+            "file": os.path.relpath(error.filename, input_dir),
+            "error": str(error),
+        })
+
+    for root, _, files in os.walk(input_dir, onerror=record_walk_error):
         for name in files:
             source = os.path.join(root, name)
             try:

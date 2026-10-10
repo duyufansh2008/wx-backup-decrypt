@@ -86,6 +86,28 @@ def test_normalized_extensions_do_not_collide(tmp_path):
     assert (output / "same.jpg").read_bytes() == b"\xff\xd8\xfftwo"
 
 
+def test_extensionless_names_do_not_collide(tmp_path):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    first = input_dir / "same"
+    second = input_dir / "same.jpg"
+    first.write_bytes(b"\xff\xd8\xffone")
+    second.write_bytes(b"\xff\xd8\xfftwo")
+    output = tmp_path / "output"
+    extract_one(str(first), str(output), str(input_dir))
+    extract_one(str(second), str(output), str(input_dir))
+    assert (output / "same.noext.jpg").read_bytes() == b"\xff\xd8\xffone"
+    assert (output / "same.jpg").read_bytes() == b"\xff\xd8\xfftwo"
+
+
+def test_legacy_office_signature_is_detected():
+    from tools.extract_media import detect_file
+
+    ole = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    assert detect_file(ole, "doc") == (0, "doc")
+    assert detect_file(ole, "xls") == (0, "xls")
+
+
 def test_missing_input_is_rejected(tmp_path):
     try:
         validate_directories(str(tmp_path / "missing"), str(tmp_path / "out"))
