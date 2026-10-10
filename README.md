@@ -58,7 +58,7 @@ python tools/decrypt.py --db /path/to/database.xb --output ./decrypted
 
 - **并非所有字段都加密了！** `wx_friend.nickname`、`wx_group.nickName` 等字段可能是明文，而 `wx_chat.content` 是 XOR 加密的
 - 不要盲目对所有字段解密 — 先检测每个字段
-- IMEI 推导方法（`MD5(IMEI + UIN)[:7]`）作为备用方案可用
+- IMEI 推导方法（`MD5(IMEI + UIN)[:8]`，即 MD5 十六进制结果的前 4 个字节）作为备用方案可用。已知明文攻击成功时通常不需要 IMEI/UIN。
 
 ### 数据库结构
 
@@ -96,6 +96,20 @@ python tools/decrypt.py --db /path/to/database.xb --output ./decrypted
 | `friends.json` | 好友列表 |
 | `groups.json` | 群聊列表 |
 | `decrypt_stats.json` | 解密统计 |
+
+## 提取媒体文件
+
+部分 Android/NAS 备份会把图片、视频、文档等文件保存为带有 `wxen` 头的容器。可以使用仓库中的独立工具提取文件内容：
+
+```bash
+python tools/extract_media.py \
+  --input-dir /path/to/BackupFiles/.../media \
+  --output-dir ./media_decrypted
+```
+
+工具不会修改输入文件，支持断点运行，并根据文件头识别常见的 jpg、png、gif、webp、heic、mp4、m4a、mp3、pdf、zip/Office 文档和 HTML 文件。无法识别的文件会保留原扩展名并记录在统计结果中。
+
+输入目录和输出目录必须由使用者明确指定；仓库不包含任何聊天记录、备份数据库、媒体文件或个人路径。
 
 ## 兼容性
 
