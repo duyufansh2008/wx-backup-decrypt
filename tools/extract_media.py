@@ -8,11 +8,14 @@ import argparse
 import json
 import os
 import shutil
+import tempfile
 from collections import Counter
 
 HEAD_SIZE = 4096
 HEIC_BRANDS = {b"heic", b"heix", b"hevc", b"heif", b"mif1", b"msf1"}
-DOC_EXTS = {"docx", "pptx", "xlsx", "doc", "xls", "zip", "epub", "mobi", "xapk", "apkm"}
+DOC_EXTS = {
+    "docx", "pptx", "xlsx", "doc", "xls", "zip", "epub", "mobi", "xapk", "apkm"
+}
 
 
 def ftyp_extension(head, offset):
@@ -40,7 +43,8 @@ def detect_file(head, original_ext):
         return 0, "pdf"
     if head.startswith(b"PK"):
         return 0, original_ext if original_ext in DOC_EXTS else "zip"
-    if head.startswith(b"ID3") or any(head.startswith(x) for x in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa")):
+    mp3_headers = (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xfa")
+    if head.startswith(b"ID3") or any(head.startswith(x) for x in mp3_headers):
         return 0, "mp3"
     ftyp = head.find(b"ftyp")
     if ftyp >= 4:
@@ -52,7 +56,7 @@ def detect_file(head, original_ext):
     return None
 
 
-def extract_one(source, destination, head_size=HEAD_SIZE):
+def extract_one(source, destination, source_root=None, head_size=HEAD_SIZE):
     with open(source, "rb") as stream:
         head = stream.read(head_size)
     original_ext = os.path.splitext(source)[1].lower().lstrip(".")
@@ -64,21 +68,51 @@ def extract_one(source, destination, head_size=HEAD_SIZE):
         offset, extension = plan
         offset += 8
     else:
-        offset, extension = detect_file(head, original_ext) or (0, original_ext or "bin")
-    output = os.path.join(destination, os.path.splitext(os.path.basename(source))[0] + "." + extension)
-    if os.path.exists(output) and os.path.getsize(output) > 0:
+        offset, extension = detect_file(head, original_ext) or (
+            0, original_ext or "bin"
+        )
+    if source_root:
+        relative = os.path.relpath(source, source_root)
+        output = os.path.join(
+            destination, os.path.splitext(relative)[0] + "." + extension
+        )
+    else:
+        output = os.path.join(
+            destination,
+            os.path.splitext(os.path.basename(source))[0] + "." + extension,
+        )
+    complete_marker = output + ".complete"
+    if os.path.exists(output) and os.path.exists(complete_marker):
         return "skipped", output
     os.makedirs(destination, exist_ok=True)
-    with open(source, "rb") as src, open(output, "wb") as dst:
-        src.seek(offset)
-        shutil.copyfileobj(src, dst, 1024 * 1024)
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    output_dir = os.path.dirname(output)
+    fd, temporary = tempfile.mkstemp(
+        prefix="." + os.path.basename(output) + ".", dir=output_dir
+    )
+    os.close(fd)
+    try:
+        with open(source, "rb") as src, open(temporary, "wb") as dst:
+            src.seek(offset)
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+        os.replace(temporary, output)
+        with open(complete_marker + ".tmp", "w", encoding="ascii") as marker:
+            marker.write("complete\n")
+        os.replace(complete_marker + ".tmp", complete_marker)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return "extracted", output
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", required=True, help="Backup media directory")
-    parser.add_argument("--output-dir", required=True, help="Directory for extracted files")
+    parser.add_argument(
+        "--input-dir", required=True, help="Backup media directory"
+    )
+    parser.add_argument(
+        "--output-dir", required=True, help="Directory for extracted files"
+    )
     parser.add_argument("--report", help="Optional JSON report path")
     args = parser.parse_args()
     stats = Counter()
@@ -87,14 +121,26 @@ def main():
         for name in files:
             source = os.path.join(root, name)
             try:
-                status, _ = extract_one(source, args.output_dir)
+                status, _ = extract_one(
+                    source, args.output_dir, args.input_dir
+                )
                 stats[status] += 1
                 if status == "unrecognized":
                     failures.append(os.path.relpath(source, args.input_dir))
             except (OSError, ValueError) as exc:
                 stats["error"] += 1
-                failures.append({"file": os.path.relpath(source, args.input_dir), "error": str(exc)})
-    report = {"input_dir": os.path.abspath(args.input_dir), "output_dir": os.path.abspath(args.output_dir), "counts": dict(stats), "failures": failures}
+                failures.append(
+                    {
+                        "file": os.path.relpath(source, args.input_dir),
+                        "error": str(exc),
+                    }
+                )
+    report = {
+        "input_dir": os.path.abspath(args.input_dir),
+        "output_dir": os.path.abspath(args.output_dir),
+        "counts": dict(stats),
+        "failures": failures,
+    }
     if args.report:
         with open(args.report, "w", encoding="utf-8") as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2)

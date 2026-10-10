@@ -1,4 +1,8 @@
 import sqlite3
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from tools.decrypt import decrypt_xor, imei_key_derivation, validate_key
 from tools.extract_media import detect_file, extract_one
@@ -28,6 +32,32 @@ def test_wxen_media_extraction_is_resumable(tmp_path):
     assert path.endswith("sample.jpg")
     assert open(path, "rb").read() == b"\xff\xd8\xffpayload"
     assert extract_one(str(source), str(output))[0] == "skipped"
+
+
+def test_media_extraction_preserves_duplicate_basenames(tmp_path):
+    first = tmp_path / "one" / "same.jpg"
+    second = tmp_path / "two" / "same.jpg"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    output = tmp_path / "out"
+    extract_one(str(first), str(output), str(tmp_path))
+    extract_one(str(second), str(output), str(tmp_path))
+    assert (output / "one" / "same.jpg").read_bytes() == b"one"
+    assert (output / "two" / "same.jpg").read_bytes() == b"two"
+
+
+def test_interrupted_output_is_not_considered_complete(tmp_path):
+    source = tmp_path / "sample.jpg"
+    source.write_bytes(b"payload")
+    output = tmp_path / "out"
+    output.mkdir()
+    partial = output / "sample.jpg"
+    partial.write_bytes(b"partial")
+    status, path = extract_one(str(source), str(output))
+    assert status == "extracted"
+    assert Path(path).read_bytes() == b"payload"
 
 
 def test_validate_key_on_minimal_database(tmp_path):
