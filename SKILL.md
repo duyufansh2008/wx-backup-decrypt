@@ -103,7 +103,7 @@ The script detects if a field is encrypted by checking: hex-only characters + ev
 Android/NAS backups may contain media files wrapped in a `wxen` container. When the user explicitly asks for media extraction, run:
 
 ```bash
-python3 tools/extract_media.py \
+python3 .claude/skills/wx-backup-decrypt/tools/extract_media.py \
   --input-dir /path/to/media \
   --output-dir /path/to/media_decrypted
 ```

@@ -111,11 +111,19 @@ def extract_one(source, destination, source_root=None, head_size=HEAD_SIZE):
             destination,
             os.path.splitext(os.path.basename(source))[0] + "." + extension,
         )
-    complete_marker = output + ".complete"
+    # Keep markers in a separate namespace so a legitimate source named
+    # ``asset.jpg.complete`` can never collide with a marker for ``asset.jpg``.
+    marker_dir = os.path.join(destination, ".complete")
+    relative_output = (
+        os.path.relpath(output, destination)
+        if source_root else os.path.basename(output)
+    )
+    complete_marker = os.path.join(marker_dir, relative_output + ".marker")
     if os.path.exists(output) and os.path.exists(complete_marker):
         return "skipped", output
     os.makedirs(destination, exist_ok=True)
     os.makedirs(os.path.dirname(output), exist_ok=True)
+    os.makedirs(os.path.dirname(complete_marker), exist_ok=True)
     output_dir = os.path.dirname(output)
     fd, temporary = tempfile.mkstemp(
         prefix="." + os.path.basename(output) + ".", dir=output_dir

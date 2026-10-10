@@ -60,6 +60,19 @@ def test_interrupted_output_is_not_considered_complete(tmp_path):
     assert Path(path).read_bytes() == b"payload"
 
 
+def test_completion_markers_are_outside_output_namespace(tmp_path):
+    source = tmp_path / "asset.jpg"
+    source.write_bytes(b"payload")
+    legitimate = tmp_path / "asset.jpg.complete"
+    legitimate.write_bytes(b"not-a-marker")
+    output = tmp_path / "out"
+    status, path = extract_one(str(source), str(output))
+    assert status == "extracted"
+    assert Path(path).read_bytes() == b"payload"
+    assert (output / ".complete" / "asset.jpg.marker").exists()
+    assert legitimate.read_bytes() == b"not-a-marker"
+
+
 def test_output_must_be_outside_input(tmp_path):
     input_dir = tmp_path / "input"
     input_dir.mkdir()
