@@ -79,7 +79,7 @@ Show user:
 ### Key discovery (handled automatically by decrypt.py)
 
 1. **Known-plaintext attack** (primary): Match `wx_backup_history.display` (plaintext) to `wx_chat.content` (ciphertext) at same timestamp/session → derive XOR key
-2. **IMEI derivation** (fallback): `MD5(IMEI + UIN)[:7]`
+2. **IMEI derivation** (fallback): `MD5(IMEI + UIN)[:8]` (the first 4 bytes of the hexadecimal digest)
 3. **Brute-force** (last resort): Try all 256 single-byte XOR keys
 
 ### Field encryption auto-detection
@@ -97,6 +97,18 @@ The script detects if a field is encrypted by checking: hex-only characters + ev
 | `friends.json` | Friend list |
 | `groups.json` | Group list |
 | `decrypt_stats.json` | Statistics & metadata |
+
+## Optional media extraction
+
+Android/NAS backups may contain media files wrapped in a `wxen` container. When the user explicitly asks for media extraction, run:
+
+```bash
+python3 tools/extract_media.py \
+  --input-dir /path/to/media \
+  --output-dir /path/to/media_decrypted
+```
+
+The tool is resumable, does not modify source files, and never assumes a specific wxid, NAS mount, or account. Report files that cannot be identified instead of deleting or overwriting them.
 
 ## Troubleshooting
 
